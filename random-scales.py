@@ -17,41 +17,21 @@ scales = {'major': ['C, D, E, F, G, A, B', 'G, A, B, C, D, E, F#', 'D, E, F#, G,
 'C#, D, E, F#, G, A, B', 'D, D#, F, G, G#, A#, C', 'Eb, E, F#, G#, A, B, C#', 'E, F, G, A, Bb, C, D', 'F, F#, G#, A#, B, C#, D#', 'F#, G, A, B, C, D, E', 'G, G#, A#, C, C#, D#, F', 
 'G#, A, B, C#, D, E, F#', 'A, A#, C, D, D#, F, G', 'A#, B, C#, D#, E, F#, G#', 'B, C, D, E, F, G, A']}
 
-whatScales = str(input('Choose Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ')).lower() 
+whatScales = input('Choose Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ').lower() 
 
 #^asks user to choose from keys in dict
 
 while whatScales.lower() not in ('minor', 'major', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'aeolian', 'locrian', 'all'):
-    whatScales = str(input('Sorry, invalid choice. Choose only from Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ')).lower()
+    whatScales = input('Sorry, invalid choice. Choose only from Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ').lower()
 
 #if the user chooses an incorrect choice, it reiterates the question/choices
 
-if whatScales in ['major']:
-    print(random.choice(scales['major']))
-    print('That\'s a nice sounding major scale!')
-elif whatScales in ['minor']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding minor scale!')
-elif whatScales in ['dorian']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding dorian scale!')
-elif whatScales in ['phrygian']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding phrygian scale!')
-elif whatScales in ['lydian']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding lydian scale!')
-elif whatScales in ['mixolydian']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding mixolydian scale!')
-elif whatScales in ['aeolian']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding aeolian scale!')
-elif whatScales in ['locrian']:
-    print(random.choice(scales[whatScales]))
-    print('That\'s a nice sounding locrian scale!')
-elif whatScales in ['all']:
+for key in scales.keys():  # a for loop that looks for the key variable in the scales dictionary to match with the correct key of the scales dictionary.
+    if whatScales in key:   # if the user's answer (whatScales) is in the .
+        print(random.choice(scales[key]))
+        print('That\'s a nice sounding {} scale!'.format(key))
+if whatScales in ['all']:
     print(random.choice(list(itertools.chain.from_iterable(scales.values()))))
     print('That\'s a nice sounding random scale!')
 
-#an if statement that points the user's answer to the correct key. the final elif statement useres itertools to flatten the dictionary into values to then randomize
+#^ an if statement that points the user's answer to the correct key. the final elif statement uses itertools to flatten the dictionary into values to then randomize

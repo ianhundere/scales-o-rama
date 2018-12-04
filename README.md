@@ -1,7 +1,7 @@
 # Scales-O-Rama
 
 ## Synopsis
-A python program that randomly selects music scales as well as allows the user to find scales based on any inputted notes that are then matched with minor, major, or any modal scale.
+A Python program that finds scales based on individual notes or chooses a scale randomly from the major or minor scales, or any modal scale.
 
 
 ## Features

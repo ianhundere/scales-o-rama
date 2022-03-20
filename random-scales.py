@@ -32,7 +32,7 @@ scales = {
 
 whatFunc = input('Choose random or lookup? ').lower()
 
-while whatFunc not in ('random', 'lookup'):
+while whatFunc not in ('random', 'r', 'lookup', 'l'):
     whatFunc = input('Please choose only random or lookup. ').lower()
 
 if whatFunc == 'lookup':

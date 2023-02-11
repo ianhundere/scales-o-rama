@@ -47,25 +47,24 @@ if whatFunc == 'lookup':
                     break
             else:
                 matches.append([key, scale])
-
     pprint(matches)
 
 elif whatFunc == 'random':
-    whatScales = input('Choose Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ').lower() 
-
-    #^asks user to choose from keys in dict
+    whatScales = input(
+        'Choose Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ').lower()
+    # ^asks user to choose from keys in dict
 
     while whatScales.lower() not in ('minor', 'major', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'aeolian', 'locrian', 'all'):
-        whatScales = input('Sorry, invalid choice. Choose only from Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ').lower()
+        whatScales = input(
+            'Sorry, invalid choice. Choose only from Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, or All: ').lower()
+    # if the user chooses an incorrect choice, it reiterates the question/choices
 
-    #if the user chooses an incorrect choice, it reiterates the question/choices
-
-    for key in scales.keys():  # a for loop that looks for the key variable in the scales dictionary to match with the correct key of the scales dictionary.
-        if whatScales in key:
+    # a for loop that looks for the key variable in the scales dictionary to match with the correct key of the scales dictionary.
+    for key in scales.keys():
+        if key == whatScales:
             print(random.choice(scales[key]))
             print('That\'s a nice sounding {} scale!'.format(key))
     if whatScales in ['all']:
         print(random.choice(list(itertools.chain.from_iterable(scales.values()))))
         print('That\'s a nice sounding random scale!')
-
-    #^ an if statement that points the user's answer to the correct key. the final elif statement uses itertools to flatten the dictionary into values to then randomize
+    # ^ an if statement that points the user's answer to the correct key. the final elif statement uses itertools to flatten the dictionary into values to then randomize

@@ -109,7 +109,7 @@ if __name__ == '__main__':
     elif whatFunc in ('song', 's'):
         # song mode hands back a full songwriting brief, not just a scale
         challenge = generate_challenge()
-        print('--- Your Songwriting Challenge ---')
+        print('--- song guide ---')
         print('Scale:      {} {} ({})'.format(
             challenge['root'], challenge['mode'].capitalize(), challenge['scale']))
         print('Tempo:      {} BPM'.format(challenge['tempo']))
@@ -117,4 +117,3 @@ if __name__ == '__main__':
         print('Structure:  {}'.format(challenge['structure']))
         print('Mood:       {}'.format(challenge['mood']))
         print('Constraint: {}'.format(challenge['constraint']))
-        print('Now go write something!')

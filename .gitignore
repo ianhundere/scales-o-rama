@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+
+# Local workspace / agent artifacts (never commit)
+.agent/
+.agents/
+.claude/
+_bmad/
+_bmad-output/
+.bmad-loop/

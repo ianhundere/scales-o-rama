@@ -10,6 +10,15 @@ A Python program that finds scales based on individual notes or chooses a scale 
 - The itertools module is used to flatten the dictionary of scales into values allowing scales to be randomized
 - If the incorrect option is chosen, the user is alerted to enter either "lookup" or "random"
 
+## Install / Run
+
+`som` is the launcher — it resolves its own location, so it works from a clone
+anywhere (including through a symlink):
+
+```bash
+ln -sf "$(realpath som)" ~/bin/som   # then just run: som
+```
+
 ## Future Features
 - Add sounds to mirror the chosen scale for the randomize function
 - Add MIDI support to play scales via an instrument

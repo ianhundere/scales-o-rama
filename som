@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# launcher for scales-o-rama — resolves its own location so it works from a
+# clone anywhere, including via a symlink (e.g. ~/bin/som -> this file).
+# install: ln -sf "$(realpath som)" ~/bin/som
+exec python3 "$(dirname "$(readlink -f "$0")")/scale-o-rama.py" "$@"

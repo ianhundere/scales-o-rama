@@ -1,0 +1,194 @@
+import datetime
+import json
+import os
+import random
+import re
+
+from prompts_data import (
+    ARCS,
+    CONSTRAINTS,
+    FIRST_MOVES,
+    GROOVES,
+    HARMONIC_RHYTHMS,
+    INSTRUMENTS,
+    MOODS,
+    PRODUCTION,
+    STRUCTURES,
+    TEXTURES,
+    TIME_SIGNATURES,
+    TITLE_WORDS,
+    WILDCARDS,
+)
+from scales_data import (
+    COLOR_NOTES,
+    MOVEMENTS,
+    NOTE_RE,
+    mode_chords,
+    pitch_class,
+    scales,
+)
+
+
+def _pick_scale(mode=None, key=None):
+    # mode is random unless pinned; key matches a scale root by pitch class
+    mode = mode or random.choice(list(scales.keys()))
+    group = scales[mode]
+    if key:
+        group = [s for s in group if pitch_class(re.match(NOTE_RE, s).group()) == pitch_class(key)]
+    return mode, random.choice(group)
+
+
+def _roll_progression(c):
+    degrees, nickname = random.choice(MOVEMENTS[c['mode']])
+    _, numerals = mode_chords(c['scale'], c['mode'])
+    c['progression'] = {'numerals': ' - '.join(numerals[d] for d in degrees),
+                        'chords': ' '.join(c['chords'][d] for d in degrees), 'name': nickname}
+    c['harmonic_rhythm'] = random.choice(HARMONIC_RHYTHMS)
+
+
+def _roll_scale(c, mode=None, key=None):
+    # scale & harmony group: mode, scale, root, chords, color note, progression
+    mode, scale = _pick_scale(mode, key)
+    notes = re.findall(NOTE_RE, scale)
+    color_index, color_name, color_use = COLOR_NOTES[mode]
+    c['mode'], c['scale'], c['root'] = mode, scale, notes[0]
+    c['chords'] = mode_chords(scale, mode)[0]
+    c['color_note'] = notes[color_index]
+    c['color'] = '{} ({}): {}'.format(notes[color_index], color_name, color_use)
+    _roll_progression(c)
+
+
+def _roll_palette(c):
+    # palette, production & constraints group
+    c['palette'] = random.sample(INSTRUMENTS, 3)
+    c['texture'] = random.choice(TEXTURES)
+    c['production'] = random.choice(PRODUCTION)
+    c['constraint'] = random.choice(CONSTRAINTS)
+    c['wildcard'] = random.choice(WILDCARDS)
+
+
+def _roll_first_move(c):
+    # refilled after every reroll so it only names what is in the brief
+    c['first_move'] = random.choice(FIRST_MOVES).format(
+        movement=c['progression']['chords'], instrument=c['palette'][0], root=c['root'],
+        color_note=c['color_note'], first_chord=c['progression']['chords'].split()[0])
+
+
+def generate_challenge(mode=None, key=None, mood=None, tempo=None):
+    # any filter given is pinned; everything else is rolled at random
+    c = {
+        'tempo': tempo if tempo is not None else random.randint(60, 180),
+        'time_sig': random.choice(TIME_SIGNATURES),
+        'structure': random.choice(STRUCTURES),
+        'mood': mood if mood is not None else random.choice(MOODS),
+        'groove': random.choice(GROOVES),
+        'arc': random.choice(ARCS),
+        'title': '{} {}'.format(*(random.choice(words) for words in TITLE_WORDS)),
+    }
+    _roll_scale(c, mode, key)
+    _roll_palette(c)
+    _roll_first_move(c)
+    return c
+
+
+def reroll(c, part, mode=None, key=None, mood=None, tempo=None):
+    # 'all' is a fresh brief; 's'/'c'/'p' reroll one group of a copy, plus first_move
+    if part == 'all':
+        return generate_challenge(mode=mode, key=key, mood=mood, tempo=tempo)
+    c = dict(c)
+    if part == 's':
+        _roll_scale(c, mode, key)
+    elif part == 'c':
+        _roll_progression(c)
+    elif part == 'p':
+        _roll_palette(c)
+    else:
+        raise ValueError('unknown reroll part: {!r}'.format(part))
+    _roll_first_move(c)
+    return c
+
+
+def format_challenge(c):
+    line = '{:<12}{}'.format
+    prog = c['progression']
+    return '\n'.join([
+        '--- song guide ---',
+        line('Scale:', '{} {} ({})'.format(c['root'], c['mode'].capitalize(), c['scale'])),
+        line('Color note:', c['color']),
+        line('Chords:', '  '.join(c['chords'])),
+        line('Movement:', '{}  ->  {}  ("{}")'.format(prog['numerals'], prog['chords'], prog['name'])),
+        line('Harmony:', c['harmonic_rhythm']),
+        '',
+        line('Tempo:', '{} BPM'.format(c['tempo'])),
+        line('Time sig:', c['time_sig']),
+        line('Groove:', c['groove']),
+        '',
+        line('Structure:', c['structure']),
+        line('Arc:', c['arc']),
+        line('Mood:', c['mood']),
+        line('Texture:', c['texture']),
+        '',
+        line('Palette:', ', '.join(c['palette'])),
+        line('Production:', c['production']),
+        line('Constraint:', c['constraint']),
+        line('Wildcard:', c['wildcard']),
+        '',
+        line('First move:', c['first_move']),
+        line('Title:', '"{}"'.format(c['title'])),
+    ])
+
+
+# EJB rig's harmony.mode enum has no 'major'/'minor'; map them to the modal names
+EJB_MODES = {'major': 'ionian', 'minor': 'aeolian'}
+
+
+def ejb_snippet(c):
+    # SuperCollider seed for the EJB rig, using its real state API
+    num, denom = c['time_sig'].split('/')
+    prog = c['progression']
+    return '\n'.join([
+        '// EJB piece seed generated by scales-o-rama: {}'.format(json.dumps(c['title'])),
+        '~stateSet.([\\harmony, \\root], {});  // {}'.format(pitch_class(c['root']), c['root']),
+        '~stateSet.([\\harmony, \\mode], "{}");'.format(EJB_MODES.get(c['mode'], c['mode'])),
+        '~composeSetMeter.({}, {});'.format(int(num), int(denom)),
+        '~clockSetTempo.({});'.format(c['tempo']),
+        '// Progression: {} -> {}'.format(prog['numerals'], prog['chords']),
+    ])
+
+
+def format_sketch(c, date, ejb=False):
+    # markdown sketch: frontmatter, the brief, optional EJB seed, then room for notes
+    q = json.dumps
+    lines = ['---',
+             'date: {}'.format(date.isoformat()),
+             'title: {}'.format(q(c['title'])),
+             'scale: {}'.format(q(c['scale'])),
+             'root: {}'.format(q(c['root'])),
+             'mode: {}'.format(q(c['mode'])),
+             'tempo: {}'.format(int(c['tempo'])),
+             'time_sig: {}'.format(q(c['time_sig'])),
+             '---', '',
+             '# {}'.format(c['title']), '',
+             '## Brief', '', '```', format_challenge(c), '```', '']
+    if ejb:
+        lines += ['## EJB seed', '', '```supercollider', ejb_snippet(c), '```', '']
+    lines += ['## Notes / lyrics', '', '']
+    return '\n'.join(lines)
+
+
+def save_sketch(c, directory='sketches', ejb=False, today=None):
+    # writes sketches/YYYY-MM-DD-<slug>.md, never overwriting (-2, -3, ...); returns the path
+    today = today or datetime.date.today()
+    slug = re.sub(r'[^a-z0-9]+', '-', c['title'].lower()).strip('-') or 'sketch'
+    base = os.path.join(directory, '{}-{}'.format(today.isoformat(), slug))
+    os.makedirs(directory, exist_ok=True)
+    text = format_sketch(c, today, ejb=ejb)
+    n = 1
+    while True:
+        path = base + ('.md' if n == 1 else '-{}.md'.format(n))
+        try:
+            with open(path, 'x', encoding='utf-8') as f:
+                f.write(text)
+            return path
+        except FileExistsError:
+            n += 1

@@ -89,6 +89,15 @@ som song                              # optional mode arg skips the first prompt
 python3 -m unittest test_scales.py    # run the test suite (stdlib only)
 ```
 
+### Layout
+
+- `scale-o-rama.py` — CLI entrypoint: argument parsing, the reroll loop, lookup/random/song dispatch
+- `scales_data.py` — scale spellings and music theory: modes, chords, color notes, movements
+- `prompts_data.py` — the word lists song mode draws from (moods, grooves, palettes, titles, ...)
+- `generator.py` — builds, rerolls and formats briefs; EJB seed and sketch export
+- `som` — bash launcher that resolves its real location (works through symlinks)
+- `test_scales.py` — stdlib `unittest` suite
+
 ## Future Features
 - Add sounds to mirror the chosen scale for the randomize function
 - Add MIDI support to play scales via an instrument

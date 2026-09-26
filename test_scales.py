@@ -1,3 +1,4 @@
+import ast
 import datetime
 import importlib.util
 import os
@@ -10,7 +11,14 @@ import unittest
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(ROOT, 'scale-o-rama.py')
+LAUNCHER = os.path.join(ROOT, 'som')
+sys.path.insert(0, ROOT)
 
+import generator  # noqa: E402
+import prompts_data  # noqa: E402
+import scales_data  # noqa: E402
+
+# the hyphenated entrypoint can't be imported by name; load it for CLI-level names
 _spec = importlib.util.spec_from_file_location('scale_o_rama', SCRIPT)
 som = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(som)
@@ -31,7 +39,7 @@ NUMERALS = {
 
 
 def tokens(scale):
-    return re.findall(som.NOTE_RE, scale)
+    return re.findall(scales_data.NOTE_RE, scale)
 
 
 def pitch(note):
@@ -41,6 +49,80 @@ def pitch(note):
 def run_cli(*args, stdin='', cwd=None):
     return subprocess.run([sys.executable, SCRIPT, *args], input=stdin,
                           capture_output=True, text=True, cwd=cwd or ROOT, timeout=30)
+
+
+MODULE_NAMES = {
+    'scales_data': ['scales', 'NOTE_RE', 'MAJOR_STEPS', 'MODE_OFFSETS', 'ROMAN', 'LETTER_PITCH',
+                    'COLOR_NOTES', 'MOVEMENTS', 'mode_chords', 'pitch_class'],
+    'prompts_data': ['TIME_SIGNATURES', 'STRUCTURES', 'MOODS', 'CONSTRAINTS', 'HARMONIC_RHYTHMS',
+                     'GROOVES', 'TEXTURES', 'ARCS', 'INSTRUMENTS', 'PRODUCTION', 'WILDCARDS',
+                     'FIRST_MOVES', 'TITLE_WORDS'],
+    'generator': ['_pick_scale', '_roll_progression', '_roll_scale', '_roll_palette',
+                  '_roll_first_move', 'generate_challenge', 'reroll', 'format_challenge',
+                  'EJB_MODES', 'ejb_snippet', 'format_sketch', 'save_sketch'],
+}
+CLI_NAMES = ['_mode_arg', '_key_arg', '_tempo_arg', '_mood_arg', 'REROLL_PROMPT',
+             'REROLL_KEYS', 'run_song']
+PROJECT = set(MODULE_NAMES)
+
+
+def parse(filename):
+    with open(os.path.join(ROOT, filename), encoding='utf-8') as f:
+        return ast.parse(f.read())
+
+
+def imported_modules(tree):
+    mods = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods |= {a.name.split('.')[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            mods.add(node.module.split('.')[0])
+    return mods
+
+
+def top_level_defs(tree):
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+    return names
+
+
+class LayoutTests(unittest.TestCase):
+    MODULES = {'scales_data': scales_data, 'prompts_data': prompts_data, 'generator': generator}
+
+    def test_modules_expose_their_names(self):
+        for mod, names in MODULE_NAMES.items():
+            defs = top_level_defs(parse(mod + '.py'))
+            for name in names:
+                self.assertIn(name, defs, (mod, name))
+                self.assertTrue(hasattr(self.MODULES[mod], name), (mod, name))
+        self.assertIs(scales_data.MOVEMENTS['minor'], scales_data.MOVEMENTS['aeolian'])
+
+    def test_cli_keeps_its_names_only(self):
+        defs = top_level_defs(parse('scale-o-rama.py'))
+        for name in CLI_NAMES:
+            self.assertIn(name, defs)
+            self.assertTrue(hasattr(som, name), name)
+        moved = {n for names in MODULE_NAMES.values() for n in names}
+        self.assertEqual(defs & moved, set())
+
+    def test_dependency_direction(self):
+        self.assertEqual(imported_modules(parse('scales_data.py')) & PROJECT, set())
+        self.assertEqual(imported_modules(parse('prompts_data.py')) & PROJECT, set())
+        self.assertEqual(imported_modules(parse('generator.py')) & PROJECT,
+                         {'scales_data', 'prompts_data'})
+        self.assertEqual(imported_modules(parse('scale-o-rama.py')) & PROJECT,
+                         {'scales_data', 'generator'})
+
+    @unittest.skipUnless(hasattr(sys, 'stdlib_module_names'), 'needs Python 3.10+')
+    def test_stdlib_only(self):
+        for filename in ['scale-o-rama.py', 'scales_data.py', 'prompts_data.py', 'generator.py']:
+            extra = imported_modules(parse(filename)) - PROJECT - set(sys.stdlib_module_names)
+            self.assertEqual(extra, set(), filename)
 
 
 class NoteReTests(unittest.TestCase):
@@ -54,21 +136,21 @@ class NoteReTests(unittest.TestCase):
         self.assertEqual(t[4], 'Bbb')
 
     def test_round_trip(self):
-        for mode, group in som.scales.items():
+        for mode, group in scales_data.scales.items():
             for scale in group:
                 self.assertEqual(''.join(tokens(scale)), scale, (mode, scale))
 
 
 class ScaleDataTests(unittest.TestCase):
     def test_shape(self):
-        self.assertEqual(set(som.scales),
+        self.assertEqual(set(scales_data.scales),
                          {'major', 'minor', 'dorian', 'phrygian', 'lydian',
                           'mixolydian', 'aeolian', 'locrian'})
-        for mode, group in som.scales.items():
+        for mode, group in scales_data.scales.items():
             self.assertEqual(len(group), 12, mode)
 
     def test_letters_distinct_and_in_order(self):
-        for mode, group in som.scales.items():
+        for mode, group in scales_data.scales.items():
             for scale in group:
                 t = tokens(scale)
                 self.assertEqual(len(t), 7, (mode, scale))
@@ -77,27 +159,27 @@ class ScaleDataTests(unittest.TestCase):
                 self.assertEqual([n[0] for n in t], expected, (mode, scale))
 
     def test_step_pattern(self):
-        for mode, group in som.scales.items():
-            off = som.MODE_OFFSETS[mode]
-            steps = som.MAJOR_STEPS[off:] + som.MAJOR_STEPS[:off]
+        for mode, group in scales_data.scales.items():
+            off = scales_data.MODE_OFFSETS[mode]
+            steps = scales_data.MAJOR_STEPS[off:] + scales_data.MAJOR_STEPS[:off]
             for scale in group:
                 p = [pitch(n) for n in tokens(scale)]
                 got = [(p[(i + 1) % 7] - p[i]) % 12 for i in range(7)]
                 self.assertEqual(got, steps, (mode, scale))
 
     def test_distinct_tonics(self):
-        for mode, group in som.scales.items():
+        for mode, group in scales_data.scales.items():
             self.assertEqual(len({pitch(tokens(s)[0]) for s in group}), 12, mode)
 
     def test_minor_equals_aeolian(self):
-        self.assertEqual(set(som.scales['minor']), set(som.scales['aeolian']))
+        self.assertEqual(set(scales_data.scales['minor']), set(scales_data.scales['aeolian']))
 
 
 class ChordTests(unittest.TestCase):
     def test_all_scales(self):
-        for mode, group in som.scales.items():
+        for mode, group in scales_data.scales.items():
             for scale in group:
-                chords, numerals = som.mode_chords(scale, mode)
+                chords, numerals = scales_data.mode_chords(scale, mode)
                 self.assertEqual(len(chords), 7)
                 self.assertEqual(numerals, NUMERALS[mode].split(), (mode, scale))
                 for chord, note, num in zip(chords, tokens(scale), numerals):
@@ -110,12 +192,12 @@ class ChordTests(unittest.TestCase):
                     self.assertEqual(chord, note + suffix, (mode, scale))
 
     def test_d_sharp_dorian(self):
-        chords, numerals = som.mode_chords('D#E#F#G#A#B#C#', 'dorian')
+        chords, numerals = scales_data.mode_chords('D#E#F#G#A#B#C#', 'dorian')
         self.assertEqual(chords, 'D#m E#m F# G# A#m B#° C#'.split())
         self.assertEqual(numerals, 'i ii bIII IV v vi° bVII'.split())
 
     def test_d_sharp_lydian(self):
-        chords, numerals = som.mode_chords('D#E#F##G##A#B#C##', 'lydian')
+        chords, numerals = scales_data.mode_chords('D#E#F##G##A#B#C##', 'lydian')
         self.assertEqual(chords, 'D# E# F##m G##° A# B#m C##m'.split())
         self.assertEqual(numerals, 'I II iii #iv° V vi vii'.split())
 
@@ -129,7 +211,7 @@ class ChallengeTests(unittest.TestCase):
     def test_generate_many(self):
         random.seed(12345)
         for _ in range(200):
-            c = som.generate_challenge()
+            c = generator.generate_challenge()
             self.assertEqual(set(c), self.KEYS)
             for k, v in c.items():
                 self.assertTrue(v, k)
@@ -138,7 +220,7 @@ class ChallengeTests(unittest.TestCase):
                     self.assertTrue(leaf, k)
                     self.assertNotRegex(str(leaf), r'[{}]', k)
             t = tokens(c['scale'])
-            self.assertIn(c['scale'], som.scales[c['mode']])
+            self.assertIn(c['scale'], scales_data.scales[c['mode']])
             self.assertEqual(c['root'], t[0])
             self.assertIn(c['color_note'], t)
             self.assertEqual(set(c['progression']), {'numerals', 'chords', 'name'})
@@ -169,17 +251,17 @@ class FilterTests(unittest.TestCase):
                 self.assertTrue(leaf, k)
                 self.assertNotRegex(str(leaf), r'[{}]', k)
         t = tokens(c['scale'])
-        self.assertIn(c['scale'], som.scales[c['mode']])
+        self.assertIn(c['scale'], scales_data.scales[c['mode']])
         self.assertEqual(c['root'], t[0])
-        self.assertEqual(c['chords'], som.mode_chords(c['scale'], c['mode'])[0])
-        self.assertEqual(c['color_note'], t[som.COLOR_NOTES[c['mode']][0]])
+        self.assertEqual(c['chords'], scales_data.mode_chords(c['scale'], c['mode'])[0])
+        self.assertEqual(c['color_note'], t[scales_data.COLOR_NOTES[c['mode']][0]])
         prog = c['progression']['chords'].split()
         self.assertTrue(set(prog) <= set(c['chords']))
-        names = [name for _, name in som.MOVEMENTS[c['mode']]]
+        names = [name for _, name in scales_data.MOVEMENTS[c['mode']]]
         self.assertIn(c['progression']['name'], names)
         fills = {tpl.format(movement=c['progression']['chords'], instrument=c['palette'][0],
                             root=c['root'], color_note=c['color_note'], first_chord=prog[0])
-                 for tpl in som.FIRST_MOVES}
+                 for tpl in prompts_data.FIRST_MOVES}
         self.assertIn(c['first_move'], fills)
         if 'mode' in filters:
             self.assertEqual(c['mode'], filters['mode'])
@@ -193,53 +275,53 @@ class FilterTests(unittest.TestCase):
     def test_pitch_class(self):
         expected = {'C': 0, 'B#': 0, 'Dbb': 0, 'F##': 7, 'Cb': 11, 'E#': 5, 'Gb': 6, 'Bbb': 9}
         for note, pc in expected.items():
-            self.assertEqual(som.pitch_class(note), pc, note)
+            self.assertEqual(scales_data.pitch_class(note), pc, note)
 
     def test_every_key_every_mode(self):
-        for mode in som.scales:
+        for mode in scales_data.scales:
             for pc_note in ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']:
-                c = som.generate_challenge(mode=mode, key=pc_note)
+                c = generator.generate_challenge(mode=mode, key=pc_note)
                 self.assertEqual(pitch(c['root']), pitch(pc_note), (mode, pc_note))
 
     def test_enharmonic_key_uses_scale_spelling(self):
-        c = som.generate_challenge(mode='major', key='Gb')
+        c = generator.generate_challenge(mode='major', key='Gb')
         self.assertEqual((c['root'], c['scale']), ('F#', 'F#G#A#BC#D#E#'))
 
     def test_key_only_any_mode(self):
         random.seed(7)
-        modes = {som.generate_challenge(key='A')['mode'] for _ in range(200)}
-        self.assertEqual(modes, set(som.scales))
+        modes = {generator.generate_challenge(key='A')['mode'] for _ in range(200)}
+        self.assertEqual(modes, set(scales_data.scales))
 
     def test_filtered_generate_many(self):
         for filters in FILTER_SETS:
             random.seed(99)
             for _ in range(200):
-                self.check_brief(som.generate_challenge(**filters), filters)
+                self.check_brief(generator.generate_challenge(**filters), filters)
 
     def test_partial_rerolls(self):
         for filters in FILTER_SETS:
             random.seed(2024)
-            c = som.generate_challenge(**filters)
+            c = generator.generate_challenge(**filters)
             for i in range(200):
                 part = 'scp'[i % 3]
-                new = som.reroll(c, part, **filters)
+                new = generator.reroll(c, part, **filters)
                 self.check_brief(new, filters)
                 changed = {k for k in c if c[k] != new[k]}
                 self.assertTrue(changed <= GROUPS[part] | {'first_move'}, (part, changed))
                 c = new
             for _ in range(50):
-                c = som.reroll(c, 'all', **filters)
+                c = generator.reroll(c, 'all', **filters)
                 self.check_brief(c, filters)
 
     def test_rerolls_change_their_group(self):
         # each part must actually reroll a field unique to its group
         random.seed(11)
-        base = som.generate_challenge()
+        base = generator.generate_challenge()
         for part, fields in [('s', ('scale', 'root')), ('c', ('progression',)),
                              ('p', ('palette',)), ('all', ('title',))]:
             changed = set()
             for _ in range(50):
-                new = som.reroll(base, part)
+                new = generator.reroll(base, part)
                 changed |= {f for f in fields if new[f] != base[f]}
             self.assertEqual(changed, set(fields), part)
 
@@ -248,11 +330,11 @@ class FilterTests(unittest.TestCase):
 
     def test_reroll_does_not_mutate(self):
         random.seed(3)
-        c = som.generate_challenge()
+        c = generator.generate_challenge()
         snapshot = {k: (dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
                     for k, v in c.items()}
         for part in 'scp':
-            som.reroll(c, part)
+            generator.reroll(c, part)
         self.assertEqual(c, snapshot)
 
 
@@ -291,7 +373,7 @@ def frontmatter(text):
     lines = text.splitlines()
     assert lines[0] == '---'
     end = lines.index('---', 1)
-    return [tuple(l.split(': ', 1)) for l in lines[1:end]]
+    return [tuple(line.split(': ', 1)) for line in lines[1:end]]
 
 
 def fenced(text, heading, lang=''):
@@ -304,11 +386,11 @@ def fenced(text, heading, lang=''):
 
 class EjbSnippetTests(unittest.TestCase):
     def test_every_mode_every_key(self):
-        for mode in som.scales:
+        for mode in scales_data.scales:
             for pc in range(12):
                 key = [k for k in BASE if BASE[k] == pc] or [k + '#' for k in BASE if BASE[k] == pc - 1]
-                c = som.generate_challenge(mode=mode, key=key[0])
-                lines = som.ejb_snippet(c).splitlines()
+                c = generator.generate_challenge(mode=mode, key=key[0])
+                lines = generator.ejb_snippet(c).splitlines()
                 self.assertEqual(len(lines), 6, lines)
                 self.assertEqual(lines[0], '// EJB piece seed generated by scales-o-rama: "{}"'.format(c['title']))
                 m = re.fullmatch(r'~stateSet\.\(\[\\harmony, \\root\], (\d+)\);  // (\S+)', lines[1])
@@ -328,24 +410,24 @@ class EjbSnippetTests(unittest.TestCase):
                     c['progression']['numerals'], c['progression']['chords']))
 
     def test_every_time_sig(self):
-        c = som.generate_challenge()
-        for ts in som.TIME_SIGNATURES:
+        c = generator.generate_challenge()
+        for ts in prompts_data.TIME_SIGNATURES:
             c['time_sig'] = ts
             self.assertIn('~composeSetMeter.({}, {});'.format(*ts.split('/')),
-                          som.ejb_snippet(c).splitlines())
+                          generator.ejb_snippet(c).splitlines())
 
 
 class SketchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = os.path.join(self.tmp.name, 'sketches')
-        self.c = som.generate_challenge(mode='dorian', key='D', tempo=97)
+        self.c = generator.generate_challenge(mode='dorian', key='D', tempo=97)
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_frontmatter(self):
-        fm = frontmatter(som.format_sketch(self.c, DAY))
+        fm = frontmatter(generator.format_sketch(self.c, DAY))
         self.assertEqual([k for k, _ in fm], FRONTMATTER_KEYS)
         values = dict(fm)
         self.assertEqual(values['date'], '2026-09-25')
@@ -357,35 +439,35 @@ class SketchTests(unittest.TestCase):
         self.assertEqual(values['time_sig'], '"{}"'.format(self.c['time_sig']))
 
     def test_body(self):
-        text = som.format_sketch(self.c, DAY)
+        text = generator.format_sketch(self.c, DAY)
         self.assertIn('\n# {}\n'.format(self.c['title']), text)
-        self.assertEqual(fenced(text, '## Brief'), som.format_challenge(self.c))
+        self.assertEqual(fenced(text, '## Brief'), generator.format_challenge(self.c))
         self.assertIsNone(fenced(text, '## EJB seed', 'supercollider'))
         self.assertTrue(text.endswith('## Notes / lyrics\n\n'))
 
     def test_body_ejb(self):
-        text = som.format_sketch(self.c, DAY, ejb=True)
-        self.assertEqual(fenced(text, '## EJB seed', 'supercollider'), som.ejb_snippet(self.c))
+        text = generator.format_sketch(self.c, DAY, ejb=True)
+        self.assertEqual(fenced(text, '## EJB seed', 'supercollider'), generator.ejb_snippet(self.c))
         self.assertLess(text.index('## Brief'), text.index('## EJB seed'))
         self.assertLess(text.index('## EJB seed'), text.index('## Notes / lyrics'))
 
     def test_slug_and_collision(self):
         c = dict(self.c, title="Copper  Orchard's #2!")
-        first = som.save_sketch(c, directory=self.dir, today=DAY)
+        first = generator.save_sketch(c, directory=self.dir, today=DAY)
         self.assertEqual(first, os.path.join(self.dir, '2026-09-25-copper-orchard-s-2.md'))
         with open(first, encoding='utf-8') as f:
             original = f.read()
-        second = som.save_sketch(c, directory=self.dir, today=DAY)
-        third = som.save_sketch(c, directory=self.dir, today=DAY)
+        second = generator.save_sketch(c, directory=self.dir, today=DAY)
+        third = generator.save_sketch(c, directory=self.dir, today=DAY)
         self.assertEqual(second, os.path.join(self.dir, '2026-09-25-copper-orchard-s-2-2.md'))
         self.assertEqual(third, os.path.join(self.dir, '2026-09-25-copper-orchard-s-2-3.md'))
         with open(first, encoding='utf-8') as f:
             self.assertEqual(f.read(), original)
 
     def test_save_writes_format_sketch(self):
-        path = som.save_sketch(self.c, directory=self.dir, ejb=True, today=DAY)
+        path = generator.save_sketch(self.c, directory=self.dir, ejb=True, today=DAY)
         with open(path, encoding='utf-8') as f:
-            self.assertEqual(f.read(), som.format_sketch(self.c, DAY, ejb=True))
+            self.assertEqual(f.read(), generator.format_sketch(self.c, DAY, ejb=True))
 
 
 class CliTests(unittest.TestCase):
@@ -395,7 +477,7 @@ class CliTests(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertIn('dorian: D#E#F#G#A#B#C#', lines)
         expected = ['{}: {}'.format(key, scale)
-                    for key, group in som.scales.items() for scale in group
+                    for key, group in scales_data.scales.items() for scale in group
                     if {'D#', 'E#'} <= set(tokens(scale))]
         self.assertEqual(lines, expected)
 
@@ -415,14 +497,14 @@ class CliTests(unittest.TestCase):
         r = run_cli('random', 'dorian')
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.splitlines()
-        self.assertIn(lines[0], som.scales['dorian'])
+        self.assertIn(lines[0], scales_data.scales['dorian'])
         self.assertEqual(lines[1], "That's a nice sounding dorian scale!")
 
     def test_random_stdin_retry(self):
         r = run_cli('random', stdin='nope\nall\n')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.count('Sorry, invalid choice.'), 1)
-        all_scales = {s for g in som.scales.values() for s in g}
+        all_scales = {s for g in scales_data.scales.values() for s in g}
         # prompts have no trailing newline, so the scale follows the last prompt
         tail = r.stdout.rsplit(': ', 1)[1].splitlines()
         self.assertIn(tail[0], all_scales)
@@ -435,7 +517,7 @@ class CliTests(unittest.TestCase):
         self.assertIn('Title:', r.stdout)
 
     def scale_line(self, out):
-        return [l for l in out.splitlines() if l.startswith('Scale:')]
+        return [line for line in out.splitlines() if line.startswith('Scale:')]
 
     def test_song_mode_filter(self):
         r = run_cli('song', '--mode', 'Dorian')
@@ -570,7 +652,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(len(self.sketches(cwd)), 2)
         guides = r.stdout.split('--- song guide ---')[1:]
         for guide, path in zip(guides, paths):
-            scale = [l for l in guide.splitlines() if l.startswith('Scale:')][0]
+            scale = [line for line in guide.splitlines() if line.startswith('Scale:')][0]
             with open(os.path.join(cwd, path), encoding='utf-8') as f:
                 self.assertIn(scale, f.read())
 
@@ -594,6 +676,62 @@ class CliTests(unittest.TestCase):
         self.assertNotIn('Traceback', r.stderr)
         # prompted again after the failed write
         self.assertEqual(r.stdout.count('[q] quit'), 2)
+
+
+class EntrypointTests(unittest.TestCase):
+    # the I/O matrix: the split modules must resolve however the script is reached
+    def tmpdir(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return tmp.name
+
+    def run_exe(self, argv, cwd):
+        return subprocess.run(argv, input='', capture_output=True, text=True, cwd=cwd, timeout=30)
+
+    def assert_one_guide(self, r):
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count('--- song guide ---'), 1)
+        self.assertNotIn('Traceback', r.stderr)
+
+    def test_direct_run(self):
+        r = run_cli('song', '--mode', 'dorian', '--key', 'D')
+        self.assert_one_guide(r)
+        self.assertIn('Scale:      D Dorian (DEFGABC)', r.stdout.splitlines())
+
+    def test_other_cwd(self):
+        r = run_cli('song', '--mode', 'dorian', '--key', 'D', cwd=self.tmpdir())
+        self.assert_one_guide(r)
+        self.assertIn('Scale:      D Dorian (DEFGABC)', r.stdout.splitlines())
+
+    def test_launcher(self):
+        r = self.run_exe([LAUNCHER, 'random', 'dorian'], ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertIn(lines[0], scales_data.scales['dorian'])
+        self.assertEqual(lines[1], "That's a nice sounding dorian scale!")
+
+    def test_symlinked_launcher(self):
+        tmp = self.tmpdir()
+        link = os.path.join(tmp, 'som')
+        os.symlink(LAUNCHER, link)
+        r = self.run_exe([link, 'lookup', 'D#', 'E#'], tmp)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        direct = run_cli('lookup', 'D#', 'E#')
+        self.assertEqual(r.stdout, direct.stdout)
+        self.assertIn('dorian: D#E#F#G#A#B#C#', r.stdout.splitlines())
+
+    def test_symlinked_script(self):
+        tmp = self.tmpdir()
+        link = os.path.join(tmp, 'x.py')
+        os.symlink(SCRIPT, link)
+        self.assert_one_guide(self.run_exe([sys.executable, link, 'song'], tmp))
+
+    def test_launcher_bad_arg(self):
+        r = self.run_exe([LAUNCHER, 'song', '--tempo', '0'], ROOT)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('usage:', r.stderr)
+        self.assertIn('invalid tempo', r.stderr)
+        self.assertEqual(r.stdout, '')
 
 
 if __name__ == '__main__':

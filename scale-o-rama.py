@@ -10,14 +10,14 @@ scales = {
     'minor': ['CDEbFGAbBb', 'GABbCDEbF', 'DEFGABbC', 'ABCDEFG', 'EF#GABCD',
               'BC#DEF#GA', 'F#G#ABC#DE', 'C#D#EF#G#AB', 'G#A#BC#D#EF#',
               'EbFGbAbBbCbDb', 'BbCDbEbFGbAb', 'FGAbBbCDbEb'],
-    'dorian': ['CDEbFGABb', 'C#D#EF#G#A#B', 'DEFGABC', 'D#FF#G#A#CC#', 'EF#GABC#D',
-               'FGAbBbCDEb', 'F#G#ABC#D#E', 'GABbCDEF', 'G#A#BC#D#FF#', 'ABCDEF#G',
-               'A#CC#D#FGG#', 'BC#DEF#G#A'],
+    'dorian': ['CDEbFGABb', 'C#D#EF#G#A#B', 'DEFGABC', 'D#E#F#G#A#B#C#', 'EF#GABC#D',
+               'FGAbBbCDEb', 'F#G#ABC#D#E', 'GABbCDEF', 'G#A#BC#D#E#F#', 'ABCDEF#G',
+               'A#B#C#D#E#F##G#', 'BC#DEF#G#A'],
     'phrygian': ['CDbEbFGAbBb', 'C#DEF#G#AB', 'DEbFGABbC', 'D#EF#G#A#BC#',
-                 'EFGABCD', 'FF#G#A#CC#D#', 'F#GABC#DE', 'GG#A#CDD#F',
-                 'G#ABC#D#EF#', 'ABbCDEFG', 'A#BC#D#FF#G#', 'BCDEF#GA'],
-    'lydian': ['CDEF#GAB', 'C#D#FGG#A#C', 'DEF#G#ABC#', 'D#FGAA#CD', 'EF#G#A#BC#D#', 'FGABCDE', 'F#G#A#CC#D#F', 'GABC#DEF#', 'G#A#CDD#FG',
-               'ABC#D#EF#G#', 'BbCDEFGA', 'BC#D#FF#G#A#'],
+                 'EFGABCD', 'FGbAbBbCDbEb', 'F#GABC#DE', 'GAbBbCDEbF',
+                 'G#ABC#D#EF#', 'ABbCDEFG', 'A#BC#D#E#F#G#', 'BCDEF#GA'],
+    'lydian': ['CDEF#GAB', 'C#D#E#F##G#A#B#', 'DEF#G#ABC#', 'D#E#F##G##A#B#C##', 'EF#G#A#BC#D#', 'FGABCDE', 'F#G#A#B#C#D#E#', 'GABC#DEF#', 'G#A#B#C##D#E#F##',
+               'ABC#D#EF#G#', 'BbCDEFGA', 'BC#D#E#F#G#A#'],
     'mixolydian': ['CDEFGABb', 'C#D#E#F#G#A#B', 'DEF#GABC', 'D#E#F##G#A#B#C#',
                    'EF#G#ABC#D', 'FGABbCDEb', 'F#G#A#BC#D#E', 'GABCDEF',
                    'G#A#B#C#D#E#F#', 'ABC#DEF#G', 'A#B#C##D#E#F##G#',
@@ -25,12 +25,12 @@ scales = {
     'aeolian': ['CDEbFGAbBb', 'C#D#EF#G#AB', 'DEFGABbC', 'EbFGbAbBbCbDb', 'EF#GABCD',
                 'FGAbBbCDbEb', 'F#G#ABC#DE', 'GABbCDEbF', 'G#A#BC#D#EF#', 'ABCDEFG',
                 'BbCDbEbFGbAb', 'BC#DEF#GA'],
-    'locrian': ['CC#D#FF#G#A#', 'C#DEF#GAB', 'DD#FGG#A#C', 'EbEF#G#ABC#', 'EFGABbCD',
-                'FF#G#A#BC#D#', 'F#GABCDE', 'GG#A#CC#D#F', 'G#ABC#DEF#', 'AA#CDD#FG',
+    'locrian': ['CDbEbFGbAbBb', 'C#DEF#GAB', 'DEbFGAbBbC', 'EbFbGbAbBbbCbDb', 'EFGABbCD',
+                'FGbAbBbCbDbEb', 'F#GABCDE', 'GAbBbCDbEbF', 'G#ABC#DEF#', 'ABbCDEbFG',
                 'A#BC#D#EF#G#', 'BCDEFGA'],
 }
 
-# one note: A-G + optional accidental (#/b/##/bb); current data only reaches ##, bb kept for input symmetry
+# one note: A-G + optional accidental (#/b/##/bb); scale data uses all four
 NOTE_RE = r'[A-G](?:##|#|bb|b)?'
 
 # data tables for the song mode songwriting challenge

@@ -57,6 +57,7 @@ anywhere (including through a symlink):
 ```bash
 ln -sf "$(realpath som)" ~/bin/som   # then just run: som
 som song                              # optional mode arg skips the first prompt (random/lookup/song or r/l/s)
+python3 -m unittest test_scales.py    # run the test suite (stdlib only)
 ```
 
 ## Future Features

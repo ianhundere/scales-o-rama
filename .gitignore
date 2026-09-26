@@ -13,3 +13,6 @@ _bmad-output/
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 _bmad/render/
+
+# song sketches written by `som song --save`
+sketches/

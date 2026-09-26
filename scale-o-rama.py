@@ -1,3 +1,4 @@
+import argparse
 import random
 import itertools
 import re
@@ -172,45 +173,91 @@ def mode_chords(scale, mode):
     return chords, numerals
 
 
-def generate_challenge():
-    # pick a mode key first so we keep it, then a scale within that mode
-    mode = random.choice(list(scales.keys()))
-    scale = random.choice(scales[mode])
-    match = re.match(NOTE_RE, scale)
-    root = match.group() if match else scale[:1]
+LETTER_PITCH = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+
+
+def pitch_class(note):
+    # 0-11, so enharmonic spellings (Gb / F#) compare equal
+    return (LETTER_PITCH[note[0]] + note.count('#') - note.count('b')) % 12
+
+
+def _pick_scale(mode=None, key=None):
+    # mode is random unless pinned; key matches a scale root by pitch class
+    mode = mode or random.choice(list(scales.keys()))
+    group = scales[mode]
+    if key:
+        group = [s for s in group if pitch_class(re.match(NOTE_RE, s).group()) == pitch_class(key)]
+    return mode, random.choice(group)
+
+
+def _roll_progression(c):
+    degrees, nickname = random.choice(MOVEMENTS[c['mode']])
+    _, numerals = mode_chords(c['scale'], c['mode'])
+    c['progression'] = {'numerals': ' - '.join(numerals[d] for d in degrees),
+                        'chords': ' '.join(c['chords'][d] for d in degrees), 'name': nickname}
+    c['harmonic_rhythm'] = random.choice(HARMONIC_RHYTHMS)
+
+
+def _roll_scale(c, mode=None, key=None):
+    # scale & harmony group: mode, scale, root, chords, color note, progression
+    mode, scale = _pick_scale(mode, key)
     notes = re.findall(NOTE_RE, scale)
-    chords, numerals = mode_chords(scale, mode)
-    degrees, nickname = random.choice(MOVEMENTS[mode])
     color_index, color_name, color_use = COLOR_NOTES[mode]
-    palette = random.sample(INSTRUMENTS, 3)
-    movement = ' '.join(chords[d] for d in degrees)
-    first_move = random.choice(FIRST_MOVES).format(
-        movement=movement, instrument=palette[0], root=root,
-        color_note=notes[color_index], first_chord=chords[degrees[0]])
-    return {
-        'scale': scale,
-        'root': root,
-        'mode': mode,
-        'tempo': random.randint(60, 180),
+    c['mode'], c['scale'], c['root'] = mode, scale, notes[0]
+    c['chords'] = mode_chords(scale, mode)[0]
+    c['color_note'] = notes[color_index]
+    c['color'] = '{} ({}): {}'.format(notes[color_index], color_name, color_use)
+    _roll_progression(c)
+
+
+def _roll_palette(c):
+    # palette, production & constraints group
+    c['palette'] = random.sample(INSTRUMENTS, 3)
+    c['texture'] = random.choice(TEXTURES)
+    c['production'] = random.choice(PRODUCTION)
+    c['constraint'] = random.choice(CONSTRAINTS)
+    c['wildcard'] = random.choice(WILDCARDS)
+
+
+def _roll_first_move(c):
+    # refilled after every reroll so it only names what is in the brief
+    c['first_move'] = random.choice(FIRST_MOVES).format(
+        movement=c['progression']['chords'], instrument=c['palette'][0], root=c['root'],
+        color_note=c['color_note'], first_chord=c['progression']['chords'].split()[0])
+
+
+def generate_challenge(mode=None, key=None, mood=None, tempo=None):
+    # any filter given is pinned; everything else is rolled at random
+    c = {
+        'tempo': tempo if tempo is not None else random.randint(60, 180),
         'time_sig': random.choice(TIME_SIGNATURES),
         'structure': random.choice(STRUCTURES),
-        'mood': random.choice(MOODS),
-        'constraint': random.choice(CONSTRAINTS),
-        'color_note': notes[color_index],
-        'color': '{} ({}): {}'.format(notes[color_index], color_name, color_use),
-        'chords': chords,
-        'progression': {'numerals': ' - '.join(numerals[d] for d in degrees),
-                        'chords': movement, 'name': nickname},
-        'harmonic_rhythm': random.choice(HARMONIC_RHYTHMS),
+        'mood': mood if mood is not None else random.choice(MOODS),
         'groove': random.choice(GROOVES),
         'arc': random.choice(ARCS),
-        'texture': random.choice(TEXTURES),
-        'palette': palette,
-        'production': random.choice(PRODUCTION),
-        'wildcard': random.choice(WILDCARDS),
-        'first_move': first_move,
         'title': '{} {}'.format(*(random.choice(words) for words in TITLE_WORDS)),
     }
+    _roll_scale(c, mode, key)
+    _roll_palette(c)
+    _roll_first_move(c)
+    return c
+
+
+def reroll(c, part, mode=None, key=None, mood=None, tempo=None):
+    # 'all' is a fresh brief; 's'/'c'/'p' reroll one group of a copy, plus first_move
+    if part == 'all':
+        return generate_challenge(mode=mode, key=key, mood=mood, tempo=tempo)
+    c = dict(c)
+    if part == 's':
+        _roll_scale(c, mode, key)
+    elif part == 'c':
+        _roll_progression(c)
+    elif part == 'p':
+        _roll_palette(c)
+    else:
+        raise ValueError('unknown reroll part: {!r}'.format(part))
+    _roll_first_move(c)
+    return c
 
 
 def format_challenge(c):
@@ -241,6 +288,72 @@ def format_challenge(c):
         line('First move:', c['first_move']),
         line('Title:', '"{}"'.format(c['title'])),
     ])
+
+
+def _mode_arg(value):
+    mode = value.lower()
+    if mode not in scales:
+        raise argparse.ArgumentTypeError('invalid mode {!r} (choose from {})'.format(
+            value, ', '.join(scales)))
+    return mode
+
+
+def _key_arg(value):
+    key = value[:1].upper() + value[1:].lower()
+    if not re.fullmatch(NOTE_RE, key):
+        raise argparse.ArgumentTypeError('invalid key {!r} (e.g. C, F#, Bb)'.format(value))
+    return key
+
+
+def _tempo_arg(value):
+    try:
+        tempo = int(value)
+    except ValueError:
+        tempo = 0
+    if tempo <= 0:
+        raise argparse.ArgumentTypeError('invalid tempo {!r} (a positive whole BPM)'.format(value))
+    return tempo
+
+
+def _mood_arg(value):
+    if not value.strip():
+        raise argparse.ArgumentTypeError('mood cannot be empty')
+    return value.strip()
+
+
+REROLL_PROMPT = '[enter/r] reroll all  [s] scale  [c] chords  [p] palette  [q] quit: '
+REROLL_KEYS = {'': 'all', 'r': 'all', 's': 's', 'c': 'c', 'p': 'p'}
+
+
+def run_song(argv):
+    parser = argparse.ArgumentParser(prog='som song', description='Roll a songwriting brief.')
+    parser.add_argument('--mode', type=_mode_arg, help='pin the mode, e.g. dorian')
+    parser.add_argument('--key', '--root', dest='key', type=_key_arg, help='pin the root, e.g. F# or Bb')
+    parser.add_argument('--mood', type=_mood_arg, help='pin the mood (any text)')
+    parser.add_argument('--tempo', type=_tempo_arg, help='pin the tempo in BPM')
+    parser.add_argument('-i', '--interactive', action='store_true',
+                        help='show the reroll prompt even when not in a terminal')
+    args = parser.parse_args(argv)
+    filters = {'mode': args.mode, 'key': args.key, 'mood': args.mood, 'tempo': args.tempo}
+
+    challenge = generate_challenge(**filters)
+    print(format_challenge(challenge))
+    if not (args.interactive or (sys.stdin.isatty() and sys.stdout.isatty())):
+        return
+    while True:
+        try:
+            choice = input('\n' + REROLL_PROMPT).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if choice == 'q':
+            return
+        part = REROLL_KEYS.get(choice)
+        if part is None:
+            print('unknown choice: {!r}'.format(choice))
+            continue
+        challenge = reroll(challenge, part, **filters)
+        print(format_challenge(challenge))
 
 
 if __name__ == '__main__':
@@ -288,4 +401,4 @@ if __name__ == '__main__':
 
     elif whatFunc in ('song', 's'):
         # song mode hands back a full songwriting brief, not just a scale
-        print(format_challenge(generate_challenge()))
+        run_song(sys.argv[2:])

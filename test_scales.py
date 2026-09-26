@@ -142,6 +142,144 @@ class ChallengeTests(unittest.TestCase):
             self.assertEqual(set(c['progression']), {'numerals', 'chords', 'name'})
 
 
+GROUPS = {
+    's': {'mode', 'scale', 'root', 'chords', 'color_note', 'color', 'progression',
+          'harmonic_rhythm'},
+    'c': {'progression', 'harmonic_rhythm'},
+    'p': {'palette', 'texture', 'production', 'constraint', 'wildcard'},
+}
+
+FILTER_SETS = [
+    {}, {'mode': 'dorian'}, {'key': 'A'}, {'key': 'Gb', 'mode': 'major'},
+    {'mode': 'locrian', 'key': 'Cb'}, {'mood': 'dreamy', 'tempo': 120},
+    {'mode': 'lydian', 'key': 'D#', 'mood': 'odd, "custom" {mood}', 'tempo': 1},
+]
+
+
+class FilterTests(unittest.TestCase):
+    def check_brief(self, c, filters):
+        self.assertEqual(set(c), ChallengeTests.KEYS)
+        for k, v in c.items():
+            if k == 'mood':
+                continue  # free text, echoed as-is
+            leaves = v.values() if isinstance(v, dict) else v if isinstance(v, list) else [v]
+            for leaf in leaves:
+                self.assertTrue(leaf, k)
+                self.assertNotRegex(str(leaf), r'[{}]', k)
+        t = tokens(c['scale'])
+        self.assertIn(c['scale'], som.scales[c['mode']])
+        self.assertEqual(c['root'], t[0])
+        self.assertEqual(c['chords'], som.mode_chords(c['scale'], c['mode'])[0])
+        self.assertEqual(c['color_note'], t[som.COLOR_NOTES[c['mode']][0]])
+        prog = c['progression']['chords'].split()
+        self.assertTrue(set(prog) <= set(c['chords']))
+        names = [name for _, name in som.MOVEMENTS[c['mode']]]
+        self.assertIn(c['progression']['name'], names)
+        fills = {tpl.format(movement=c['progression']['chords'], instrument=c['palette'][0],
+                            root=c['root'], color_note=c['color_note'], first_chord=prog[0])
+                 for tpl in som.FIRST_MOVES}
+        self.assertIn(c['first_move'], fills)
+        if 'mode' in filters:
+            self.assertEqual(c['mode'], filters['mode'])
+        if 'key' in filters:
+            self.assertEqual(pitch(c['root']), pitch(filters['key']))
+        if 'mood' in filters:
+            self.assertEqual(c['mood'], filters['mood'])
+        if 'tempo' in filters:
+            self.assertEqual(c['tempo'], filters['tempo'])
+
+    def test_pitch_class(self):
+        expected = {'C': 0, 'B#': 0, 'Dbb': 0, 'F##': 7, 'Cb': 11, 'E#': 5, 'Gb': 6, 'Bbb': 9}
+        for note, pc in expected.items():
+            self.assertEqual(som.pitch_class(note), pc, note)
+
+    def test_every_key_every_mode(self):
+        for mode in som.scales:
+            for pc_note in ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']:
+                c = som.generate_challenge(mode=mode, key=pc_note)
+                self.assertEqual(pitch(c['root']), pitch(pc_note), (mode, pc_note))
+
+    def test_enharmonic_key_uses_scale_spelling(self):
+        c = som.generate_challenge(mode='major', key='Gb')
+        self.assertEqual((c['root'], c['scale']), ('F#', 'F#G#A#BC#D#E#'))
+
+    def test_key_only_any_mode(self):
+        random.seed(7)
+        modes = {som.generate_challenge(key='A')['mode'] for _ in range(200)}
+        self.assertEqual(modes, set(som.scales))
+
+    def test_filtered_generate_many(self):
+        for filters in FILTER_SETS:
+            random.seed(99)
+            for _ in range(200):
+                self.check_brief(som.generate_challenge(**filters), filters)
+
+    def test_partial_rerolls(self):
+        for filters in FILTER_SETS:
+            random.seed(2024)
+            c = som.generate_challenge(**filters)
+            for i in range(200):
+                part = 'scp'[i % 3]
+                new = som.reroll(c, part, **filters)
+                self.check_brief(new, filters)
+                changed = {k for k in c if c[k] != new[k]}
+                self.assertTrue(changed <= GROUPS[part] | {'first_move'}, (part, changed))
+                c = new
+            for _ in range(50):
+                c = som.reroll(c, 'all', **filters)
+                self.check_brief(c, filters)
+
+    def test_rerolls_change_their_group(self):
+        # each part must actually reroll a field unique to its group
+        random.seed(11)
+        base = som.generate_challenge()
+        for part, fields in [('s', ('scale', 'root')), ('c', ('progression',)),
+                             ('p', ('palette',)), ('all', ('title',))]:
+            changed = set()
+            for _ in range(50):
+                new = som.reroll(base, part)
+                changed |= {f for f in fields if new[f] != base[f]}
+            self.assertEqual(changed, set(fields), part)
+
+    def test_reroll_keys(self):
+        self.assertEqual(som.REROLL_KEYS, {'': 'all', 'r': 'all', 's': 's', 'c': 'c', 'p': 'p'})
+
+    def test_reroll_does_not_mutate(self):
+        random.seed(3)
+        c = som.generate_challenge()
+        snapshot = {k: (dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
+                    for k, v in c.items()}
+        for part in 'scp':
+            som.reroll(c, part)
+        self.assertEqual(c, snapshot)
+
+
+class SongArgTests(unittest.TestCase):
+    def test_mode_arg(self):
+        self.assertEqual(som._mode_arg('Dorian'), 'dorian')
+        with self.assertRaises(som.argparse.ArgumentTypeError):
+            som._mode_arg('bluesy')
+
+    def test_key_arg(self):
+        for raw, want in [('bb', 'Bb'), ('f##', 'F##'), ('gb', 'Gb'), ('C', 'C'), ('BBB', 'Bbb')]:
+            self.assertEqual(som._key_arg(raw), want)
+        for bad in ['H', '', 'C#b', 'Cx', 'c###']:
+            with self.assertRaises(som.argparse.ArgumentTypeError, msg=bad):
+                som._key_arg(bad)
+
+    def test_tempo_arg(self):
+        self.assertEqual(som._tempo_arg('120'), 120)
+        for bad in ['0', '-5', 'fast', '1.5']:
+            with self.assertRaises(som.argparse.ArgumentTypeError, msg=bad):
+                som._tempo_arg(bad)
+
+    def test_mood_arg(self):
+        self.assertEqual(som._mood_arg('Dreamy Haze'), 'Dreamy Haze')
+        self.assertEqual(som._mood_arg('  dreamy '), 'dreamy')
+        with self.assertRaises(som.argparse.ArgumentTypeError):
+            som._mood_arg('  ')
+
+
 class CliTests(unittest.TestCase):
     def test_lookup_args(self):
         r = run_cli('lookup', 'D#', 'E#')
@@ -187,6 +325,68 @@ class CliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(r.stdout.startswith('--- song guide ---'))
         self.assertIn('Title:', r.stdout)
+
+    def scale_line(self, out):
+        return [l for l in out.splitlines() if l.startswith('Scale:')]
+
+    def test_song_mode_filter(self):
+        r = run_cli('song', '--mode', 'Dorian')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count('--- song guide ---'), 1)
+        self.assertIn('Dorian', self.scale_line(r.stdout)[0])
+
+    def test_song_mode_and_key(self):
+        r = run_cli('song', '--mode', 'dorian', '--key', 'D')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.scale_line(r.stdout), ['Scale:      D Dorian (DEFGABC)'])
+
+    def test_song_root_alias_enharmonic(self):
+        r = run_cli('song', '--root', 'gb', '--mode', 'major')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.scale_line(r.stdout), ['Scale:      F# Major (F#G#A#BC#D#E#)'])
+
+    def test_song_key_only(self):
+        r = run_cli('song', '--key', 'A')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        root = self.scale_line(r.stdout)[0].split()[1]
+        self.assertEqual(pitch(root), pitch('A'))
+
+    def test_song_mood_tempo(self):
+        r = run_cli('song', '--mood', 'dreamy', '--tempo', '120')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('Mood:       dreamy', r.stdout.splitlines())
+        self.assertIn('Tempo:      120 BPM', r.stdout.splitlines())
+
+    def test_song_bad_args(self):
+        for args in [('--mode', 'bluesy'), ('--key', 'H'), ('--tempo', '0'), ('--tempo', 'fast')]:
+            r = run_cli('song', *args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn('usage:', r.stderr)
+            self.assertEqual(r.stdout, '')
+
+    def test_song_not_tty_no_prompt(self):
+        r = run_cli('song', stdin='q\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count('--- song guide ---'), 1)
+        self.assertNotIn('quit', r.stdout)
+
+    def test_song_interactive_rerolls(self):
+        r = run_cli('song', '-i', '--mode', 'lydian', stdin='s\nc\np\n\nq\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count('--- song guide ---'), 5)
+        self.assertEqual(r.stdout.count(' Lydian ('), 5)
+
+    def test_song_interactive_unknown(self):
+        r = run_cli('song', '-i', stdin='x\nq\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count('--- song guide ---'), 1)
+        self.assertEqual(r.stdout.count('unknown choice'), 1)
+
+    def test_song_interactive_eof(self):
+        r = run_cli('song', '-i')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count('--- song guide ---'), 1)
+        self.assertNotIn('Traceback', r.stderr)
 
 
 if __name__ == '__main__':

@@ -47,6 +47,16 @@ Title:      "copper orchard"
 - **Limits**: a 3-instrument palette, a production move, a hard constraint, and an oblique-style wildcard card for when you get stuck
 - **First move**: one concrete ten-minute task to start with, plus a working title
 
+Pin any part of the brief with flags; pinned values stay put on every reroll:
+
+```bash
+som song --mode dorian --key D        # D Dorian; --root is an alias, keys match by pitch (gb finds F# major)
+som song --mood dreamy --tempo 120    # mood is free text, tempo is a positive BPM
+som song -i                           # force the reroll prompt even when piped
+```
+
+From a terminal (or with `-i`), a prompt follows the guide: `enter`/`r` rerolls everything, `s` the scale & harmony, `c` the chord movement & harmonic rhythm, `p` the palette, production & constraints, `q` quits. Partial rerolls keep the rest of the brief and refresh the first move to match; title, tempo, time sig, groove, structure, arc and mood change only on `enter`/`r` (pinned flags still hold there). Piped output (`som song | cat`) prints one guide and exits.
+
 Nothing is saved and nothing is exported. Reroll until something grabs you, then close the terminal and go make it.
 
 ## Install / Run
